@@ -109,68 +109,6 @@ def check_config(filename):
     return filename
 
 
-def prepare_parser():
-    """
-    Handle the command line arguments
-    """
-    parser = argparse.ArgumentParser(
-        prog="lingualeo",
-        description="\n".join(
-            [s.lstrip() for s in DESCRIPTION_TEXT.splitlines()]),
-        formatter_class=argparse.RawDescriptionHelpFormatter)
-
-    parser.add_argument(
-        '-e',
-        '--email',
-        required=False,
-        action='store',
-        dest='email',
-        type=str,
-        help='Lingualeo login email')
-
-    parser.add_argument(
-        '-p',
-        '--password',
-        required=False,
-        action='store',
-        dest='password',
-        type=str,
-        help='Lingualeo login password')
-
-    parser.add_argument(
-        '-c',
-        '--config',
-        required=False,
-        action='store',
-        dest='config',
-        type=check_config,
-        help='Config file')
-
-    parser.add_argument(
-        '-a',
-        '--add',
-        action='store_true',
-        dest='add',
-        default=False,
-        help='Add to lingualeo dictionary')
-
-    parser.add_argument(
-        '-d',
-        '--debug',
-        action='store_true',
-        dest='debug',
-        default=False,
-        help='Debug requests')
-
-    parser.add_argument(
-        'word',
-        metavar='WORD',
-        type=str,
-        help='Word to translate')
-
-    return parser
-
-
 def prepare_options():
     parser = prepare_parser()
     args_options = {
@@ -236,13 +174,22 @@ def lingualeo_translate(func, word, debug=False):
     if translate_json_response.get('error_msg'):
         _print_color_line(translate_json_response['error_msg'], Fore.RED)
         return
-    translate = translate_json_response['translate'][0]
-    is_exist = translate["is_user"]
-    tword = translate["value"]
-    _print_color_line(u'{0} word'.format(
-        'Existing' if is_exist else 'New'), Fore.WHITE, new_line=False)
-    _print_color_line(u'{0}: {1}'.format(word, tword), Fore.GREEN)
-    return translate
+    translates = translate_json_response['translate']
+    if not translates:
+        _print_color_line(u'Cannot translate word {}'.format(word), Fore.RED)
+        return
+    is_exist = translate_json_response['is_user']
+    twords = {
+        word.strip(): translate['is_user']
+        for translate in translates
+        for word in translate['value'].strip().split(u',')
+        if len(word.strip()) > 1
+    }
+    _print_color_line(u'Found {0} word'.format(
+        'existing' if is_exist else 'new'), Fore.RED, new_line=False)
+    _print_color_line(u'{0}: {1}'.format(
+        word, u', '.join(sorted(twords))), Fore.GREEN)
+    return is_exist, twords
 
 
 def lingualeo_add(func, word, tword, debug=False):
@@ -259,8 +206,71 @@ def lingualeo_add(func, word, tword, debug=False):
     if add_json_response.get('error_msg'):
         _print_color_line(add_json_response['error_msg'], Fore.RED)
         return
-    _print_color_line(u'Added word {0} -> {1}'.format(word, tword), Fore.RED)
+    _print_color_line(u'Added new word', Fore.RED, new_line=False)
+    _print_color_line(u'{0}: {1}'.format(word, tword), Fore.GREEN)
     return add_json_response
+
+
+def prepare_parser():
+    """
+    Handle the command line arguments
+    """
+    parser = argparse.ArgumentParser(
+        prog="lingualeo",
+        description="\n".join(
+            [s.lstrip() for s in DESCRIPTION_TEXT.splitlines()]),
+        formatter_class=argparse.RawDescriptionHelpFormatter)
+
+    parser.add_argument(
+        '-e',
+        '--email',
+        required=False,
+        action='store',
+        dest='email',
+        type=str,
+        help='Lingualeo login email')
+
+    parser.add_argument(
+        '-p',
+        '--password',
+        required=False,
+        action='store',
+        dest='password',
+        type=str,
+        help='Lingualeo login password')
+
+    parser.add_argument(
+        '-c',
+        '--config',
+        required=False,
+        action='store',
+        dest='config',
+        type=check_config,
+        help='Config file')
+
+    parser.add_argument(
+        '-a',
+        '--add',
+        action='store_true',
+        dest='add',
+        default=False,
+        help='Add to lingualeo dictionary')
+
+    parser.add_argument(
+        '-d',
+        '--debug',
+        action='store_true',
+        dest='debug',
+        default=False,
+        help='Debug requests')
+
+    parser.add_argument(
+        'word',
+        metavar='WORD',
+        type=str,
+        help='Word to translate')
+
+    return parser
 
 
 def main():
@@ -281,12 +291,11 @@ def main():
     translate_response = lingualeo_translate(make_request_func, word, debug)
     if translate_response is None:
         sys.exit(1)
-    if add:
-        tword = translate_response['value']
-        lingualeo_add(make_request_func, word, tword, debug)
+    is_exist, twords = translate_response
+    if add and not is_exist and twords:
+        lingualeo_add(
+            make_request_func, word, u', '.join(sorted(twords)), debug)
 
 
 if __name__ == "__main__":
-    if __package__ is None:
-        sys.path.append(os.path.dirname(os.path.abspath(__file__)))
     main()

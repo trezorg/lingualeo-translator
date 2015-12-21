@@ -1,8 +1,8 @@
 lingualeo-translator
 ====================================
 
-Translate and add words with Linualeo service.
-Required python 2.7+, 3.4+
+Translates and adds words with Lingualeo service.
+Requires python 2.7+, 3.4+
 
 
 Dependencies

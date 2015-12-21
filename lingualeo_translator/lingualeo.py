@@ -20,7 +20,7 @@ TRANSLATE_URL = 'http://api.lingualeo.com/gettranslates'
 ADD_WORD_URL = 'http://api.lingualeo.com/addword'
 DEFAULT_CONFIG_FILENAME = "lingualeo.yml"
 DEFAULT_CONFIGS = [
-    os.path.expanduser("~/{}".format(DEFAULT_CONFIG_FILENAME)),
+    os.path.expanduser("~/{0}".format(DEFAULT_CONFIG_FILENAME)),
     os.path.join(os.path.curdir, DEFAULT_CONFIG_FILENAME)
 ]
 DESCRIPTION_TEXT = """
@@ -35,9 +35,8 @@ DESCRIPTION_TEXT = """
 
 
 def _print_color_line(text, color, new_line=True):
-    message = u'{}{}{}'.format(color, text, Fore.RESET)
-    kwargs = {} if new_line else {'end': ' '}
-    print(message, **kwargs)
+    message = u'{0}{1}{2}'.format(color, text, Fore.RESET)
+    print(message, **({} if new_line else {'end': ' '}))
 
 
 def filter_config_files(*args):
@@ -95,7 +94,7 @@ def check_options(options):
     ])
     if absent_options:
         _print_color_line(
-            'Absent parameters: {}.\nYou should set them either in the'
+            'Absent parameters: {0}.\nYou should set them either in the'
             ' config file or in the command line.\n'.format(absent_options),
             Fore.RED)
         return False
@@ -105,7 +104,7 @@ def check_options(options):
 def check_config(filename):
     if not os.path.isfile(filename):
         raise argparse.ArgumentTypeError(
-            'Filename is not exists: %s' % filename)
+            'Filename is not exists: {0}'.format(filename))
     return filename
 
 
@@ -162,13 +161,11 @@ def lingualeo_auth(func, email, password, debug=False):
 
 
 def lingualeo_translate(func, word, debug=False):
-    translate_response = func(TRANSLATE_URL, params={
-        'word': word
-    })
+    translate_response = func(TRANSLATE_URL, params={'word': word})
     if debug:
         debug_request(translate_response)
     if translate_response.status_code != 200:
-        _print_color_line(u'Cannot translate word {}'.format(word), Fore.RED)
+        _print_color_line(u'Cannot translate word {0}'.format(word), Fore.RED)
         return
     translate_json_response = translate_response.json()
     if translate_json_response.get('error_msg'):
@@ -176,7 +173,7 @@ def lingualeo_translate(func, word, debug=False):
         return
     translates = translate_json_response['translate']
     if not translates:
-        _print_color_line(u'Cannot translate word {}'.format(word), Fore.RED)
+        _print_color_line(u'Cannot translate word {0}'.format(word), Fore.RED)
         return
     is_exist = translate_json_response['is_user']
     twords = {
@@ -200,7 +197,7 @@ def lingualeo_add(func, word, tword, debug=False):
     if debug:
         debug_request(add_response)
     if add_response.status_code != 200:
-        _print_color_line(u'Cannot add word {}'.format(word), Fore.RED)
+        _print_color_line(u'Cannot add word {0}'.format(word), Fore.RED)
         return
     add_json_response = add_response.json()
     if add_json_response.get('error_msg'):
@@ -273,28 +270,30 @@ def prepare_parser():
     return parser
 
 
-def main():
-    options = prepare_options()
-    if options is None:
-        sys.exit(1)
-    email = options['email']
-    password = options['password']
-    add = options['add']
-    word = options['word']
-    debug = options['debug']
+def process_translating(word, email, password, add=False, debug=False):
     session = requests.Session()
     make_request_func = partial(make_request, session=session)
     colorama_init()
     auth_response = lingualeo_auth(make_request_func, email, password, debug)
     if auth_response is None:
-        sys.exit(1)
+        return
     translate_response = lingualeo_translate(make_request_func, word, debug)
     if translate_response is None:
-        sys.exit(1)
+        return
     is_exist, twords = translate_response
     if add and not is_exist and twords:
-        lingualeo_add(
+        return lingualeo_add(
             make_request_func, word, u', '.join(sorted(twords)), debug)
+    return translate_response
+
+
+def main():
+    options = prepare_options()
+    if options is None:
+        sys.exit(1)
+    result = process_translating(**options)
+    if result is None:
+        sys.exit(1)
 
 
 if __name__ == "__main__":

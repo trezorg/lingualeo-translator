@@ -91,6 +91,7 @@ def check_options(options):
         'add',
         'word',
         'debug',
+        'force',
     ])
     if absent_options:
         _print_color_line(
@@ -118,11 +119,11 @@ def prepare_options():
     options = read_configs(*config_files)
     should_add = options.get('add')
     should_debug = options.get('debug')
+    should_force = options.get('force')
     options.update(args_options)
-    if should_add is True:
-        options['add'] = True
-    if should_debug is True:
-        options['debug'] = True
+    options['add'] = any([options['add'], should_add])
+    options['debug'] = any([options['debug'], should_debug])
+    options['force'] = any([options['force'], should_force])
     if not check_options(options):
         parser.print_help()
         return
@@ -183,7 +184,7 @@ def lingualeo_translate(func, word, debug=False):
         if len(word.strip()) > 1
     }
     _print_color_line(u'Found {0} word'.format(
-        'existing' if is_exist else 'new'), Fore.RED, new_line=False)
+        'existing' if is_exist else 'new'), Fore.RED)
     _print_color_line(u'{0}: {1}'.format(
         word, u', '.join(sorted(twords))), Fore.GREEN)
     return is_exist, twords
@@ -203,7 +204,7 @@ def lingualeo_add(func, word, tword, debug=False):
     if add_json_response.get('error_msg'):
         _print_color_line(add_json_response['error_msg'], Fore.RED)
         return
-    _print_color_line(u'Added new word', Fore.RED, new_line=False)
+    _print_color_line(u'Added new word', Fore.RED)
     _print_color_line(u'{0}: {1}'.format(word, tword), Fore.GREEN)
     return add_json_response
 
@@ -262,6 +263,14 @@ def prepare_parser():
         help='Debug requests')
 
     parser.add_argument(
+        '-f',
+        '--force',
+        action='store_true',
+        dest='force',
+        default=False,
+        help='Force add words')
+
+    parser.add_argument(
         'word',
         metavar='WORD',
         type=str,
@@ -270,20 +279,21 @@ def prepare_parser():
     return parser
 
 
-def process_translating(word, email, password, add=False, debug=False):
+def process_translating(word, email, password,
+                        add=False, debug=False, force=False):
     session = requests.Session()
-    make_request_func = partial(make_request, session=session)
+    make_request_part = partial(make_request, session=session)
     colorama_init()
-    auth_response = lingualeo_auth(make_request_func, email, password, debug)
+    auth_response = lingualeo_auth(make_request_part, email, password, debug)
     if auth_response is None:
         return
-    translate_response = lingualeo_translate(make_request_func, word, debug)
+    translate_response = lingualeo_translate(make_request_part, word, debug)
     if translate_response is None:
         return
     is_exist, twords = translate_response
-    if add and not is_exist and twords:
+    if add and (not is_exist or force) and twords:
         return lingualeo_add(
-            make_request_func, word, u', '.join(sorted(twords)), debug)
+            make_request_part, word, u', '.join(sorted(twords)), debug)
     return translate_response
 
 

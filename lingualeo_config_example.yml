@@ -1,3 +1,5 @@
 email: test@test.com
 password: password
 add: true
+sound: true
+player: mpg123

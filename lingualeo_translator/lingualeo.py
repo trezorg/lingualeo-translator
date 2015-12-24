@@ -2,8 +2,10 @@
 from __future__ import print_function
 import os
 import sys
+import re
 import codecs
 import logging
+import subprocess
 import argparse
 import yaml
 import requests
@@ -92,6 +94,7 @@ def check_options(options):
         'word',
         'debug',
         'force',
+        'sound',
     ])
     if absent_options:
         _print_color_line(
@@ -120,10 +123,12 @@ def prepare_options():
     should_add = options.get('add')
     should_debug = options.get('debug')
     should_force = options.get('force')
+    should_sound = options.get('sound')
     options.update(args_options)
-    options['add'] = any([options['add'], should_add])
-    options['debug'] = any([options['debug'], should_debug])
-    options['force'] = any([options['force'], should_force])
+    options['add'] = options['add'] or should_add
+    options['debug'] = options['debug'] or should_debug
+    options['force'] = options['force'] or should_force
+    options['sound'] = options['sound'] or should_sound
     if not check_options(options):
         parser.print_help()
         return
@@ -177,23 +182,29 @@ def lingualeo_translate(func, word, debug=False):
         _print_color_line(u'Cannot translate word {0}'.format(word), Fore.RED)
         return
     is_exist = translate_json_response['is_user']
-    twords = {
-        word.strip(): translate['is_user']
+    sound_url = translate_json_response.get('sound_url')
+    sorted_pairs = sorted((
+        (translate.get('votes', 0), word.strip(u' ;:,\n'))
         for translate in translates
-        for word in translate['value'].strip().split(u',')
-        if len(word.strip()) > 1
-    }
+        for word in re.split(
+            r'(\s*?:\s*?|\s*?,\s*?|\s*?;\s*?)', translate['value'].strip())
+        if len(word.strip()) > 2 and not word.strip()[0].isdigit()
+    ), reverse=True)
+    twords = []
+    for _, tword in sorted_pairs:
+        if tword not in twords:
+            twords.append(tword)
     _print_color_line(u'Found {0} word'.format(
         'existing' if is_exist else 'new'), Fore.RED)
-    _print_color_line(u'{0}: {1}'.format(
-        word, u', '.join(sorted(twords))), Fore.GREEN)
-    return is_exist, twords
+    _print_color_line(u'{0}:'.format(word), Fore.GREEN)
+    print(u'\n'.join(twords))
+    return is_exist, twords, sound_url
 
 
 def lingualeo_add(func, word, tword, debug=False):
     add_response = func(ADD_WORD_URL, method='POST', data={
         'word': word,
-        'tword': tword
+        'tword': u', '.join(tword)
     })
     if debug:
         debug_request(add_response)
@@ -205,8 +216,40 @@ def lingualeo_add(func, word, tword, debug=False):
         _print_color_line(add_json_response['error_msg'], Fore.RED)
         return
     _print_color_line(u'Added new word', Fore.RED)
-    _print_color_line(u'{0}: {1}'.format(word, tword), Fore.GREEN)
+    _print_color_line(u'{0}:'.format(word), Fore.GREEN)
+    print(u'\n'.join(tword))
     return add_json_response
+
+
+def lingualeo_play_sound(url, player):
+    with open(os.devnull, 'w') as fp:
+        subprocess.Popen(
+            [player, url], stdout=fp, stderr=subprocess.STDOUT).wait()
+
+
+def process_translating(word, email, password, player=None,
+                        add=False, debug=False, force=False, sound=False):
+    session = requests.Session()
+    make_request_part = partial(make_request, session=session)
+    colorama_init()
+    auth_response = lingualeo_auth(make_request_part, email, password, debug)
+    if auth_response is None:
+        return
+    translate_response = lingualeo_translate(make_request_part, word, debug)
+    if translate_response is None:
+        return
+    is_exist, twords, sound_url = translate_response
+    if sound:
+        if player is None:
+            logger.warning(
+                'You did not set a player either'
+                ' in config file or with command line.'
+                ' On example mplayer, mpg123')
+        else:
+            lingualeo_play_sound(sound_url, player)
+    if add and (not is_exist or force) and twords:
+        return lingualeo_add(make_request_part, word, twords, debug)
+    return translate_response
 
 
 def prepare_parser():
@@ -255,6 +298,14 @@ def prepare_parser():
         help='Add to lingualeo dictionary')
 
     parser.add_argument(
+        '-s',
+        '--sound',
+        action='store_true',
+        dest='sound',
+        default=False,
+        help='Play words pronounciation')
+
+    parser.add_argument(
         '-d',
         '--debug',
         action='store_true',
@@ -276,25 +327,15 @@ def prepare_parser():
         type=str,
         help='Word to translate')
 
+    parser.add_argument(
+        '--player',
+        required=False,
+        action='store',
+        dest='player',
+        type=str,
+        help='Player for word pronounciation')
+
     return parser
-
-
-def process_translating(word, email, password,
-                        add=False, debug=False, force=False):
-    session = requests.Session()
-    make_request_part = partial(make_request, session=session)
-    colorama_init()
-    auth_response = lingualeo_auth(make_request_part, email, password, debug)
-    if auth_response is None:
-        return
-    translate_response = lingualeo_translate(make_request_part, word, debug)
-    if translate_response is None:
-        return
-    is_exist, twords = translate_response
-    if add and (not is_exist or force) and twords:
-        return lingualeo_add(
-            make_request_part, word, u', '.join(sorted(twords)), debug)
-    return translate_response
 
 
 def main():

@@ -1,4 +1,5 @@
 #!/usr/bin/python
+# -*- coding: utf8 -*-
 from __future__ import print_function
 import os
 import sys
@@ -9,6 +10,9 @@ import subprocess
 import argparse
 import yaml
 import requests
+import string
+from itertools import ifilter
+from collections import namedtuple
 from functools import partial
 from colorama import init as colorama_init, Fore
 
@@ -17,6 +21,14 @@ logging.basicConfig()
 logger = logging.getLogger('lingualeo')
 logger.setLevel(logging.DEBUG)
 
+Translate = namedtuple('Translate', 'exists, words, sound_url, transcription')
+BIG_RUSSIAN_ALPHABET = u'АБВГДЕЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯ'
+ALPHABET = set(
+    BIG_RUSSIAN_ALPHABET +
+    BIG_RUSSIAN_ALPHABET.lower() +
+    string.ascii_letters +
+    u'-. '
+)
 AUTH_URL = 'http://api.lingualeo.com/api/login'
 TRANSLATE_URL = 'http://api.lingualeo.com/gettranslates'
 ADD_WORD_URL = 'http://api.lingualeo.com/addword'
@@ -166,6 +178,10 @@ def lingualeo_auth(func, email, password, debug=False):
     return auth_json_response
 
 
+def fix_translate_string(word):
+    return re.sub(r'\s+\.\s*', u'. ', re.sub(r'\s+', u' ', word))
+
+
 def lingualeo_translate(func, word, debug=False):
     translate_response = func(TRANSLATE_URL, params={'word': word})
     if debug:
@@ -183,28 +199,35 @@ def lingualeo_translate(func, word, debug=False):
         return
     is_exist = translate_json_response['is_user']
     sound_url = translate_json_response.get('sound_url')
-    sorted_pairs = sorted((
-        (translate.get('votes', 0), word.strip(u' ;:,\n'))
-        for translate in translates
-        for word in re.split(
-            r'(\s*?:\s*?|\s*?,\s*?|\s*?;\s*?)', translate['value'].strip())
-        if len(word.strip()) > 2 and not word.strip()[0].isdigit()
-    ), reverse=True)
+    transcription = translate_json_response.get('transcription')
+    sorted_pairs = sorted(ifilter(
+        lambda x: len(x[1]) > 1, (
+            (translate.get('votes', 0),
+                fix_translate_string(
+                    u''.join(s for s in word if s in ALPHABET).strip()))
+            for translate in translates
+            for word in re.split(r'\s*?[:,;]+\s*?', translate['value'].strip())
+        )), reverse=True)
     twords = []
     for _, tword in sorted_pairs:
         if tword not in twords:
             twords.append(tword)
     _print_color_line(u'Found {0} word'.format(
         'existing' if is_exist else 'new'), Fore.RED)
-    _print_color_line(u'{0}:'.format(word), Fore.GREEN)
+    _print_color_line(
+        u'{0}{1}:'.format(
+            word,
+            u'' if not transcription else u' ({0})'.format(transcription)),
+        Fore.GREEN
+    )
     print(u'\n'.join(twords))
-    return is_exist, twords, sound_url
+    return Translate(is_exist, twords, sound_url, transcription)
 
 
-def lingualeo_add(func, word, tword, debug=False):
+def lingualeo_add(func, word, translate_response, debug=False):
     add_response = func(ADD_WORD_URL, method='POST', data={
         'word': word,
-        'tword': u', '.join(tword)
+        'tword': u', '.join(translate_response.words)
     })
     if debug:
         debug_request(add_response)
@@ -215,9 +238,10 @@ def lingualeo_add(func, word, tword, debug=False):
     if add_json_response.get('error_msg'):
         _print_color_line(add_json_response['error_msg'], Fore.RED)
         return
-    _print_color_line(u'Added new word', Fore.RED)
-    _print_color_line(u'{0}:'.format(word), Fore.GREEN)
-    print(u'\n'.join(tword))
+    _print_color_line(u'{0} {1} word'.format(
+        'Updated' if translate_response.exists else 'Added',
+        'existing' if translate_response.exists else 'new'
+    ), Fore.RED)
     return add_json_response
 
 
@@ -238,7 +262,6 @@ def process_translating(word, email, password, player=None,
     translate_response = lingualeo_translate(make_request_part, word, debug)
     if translate_response is None:
         return
-    is_exist, twords, sound_url = translate_response
     if sound:
         if player is None:
             logger.warning(
@@ -246,9 +269,12 @@ def process_translating(word, email, password, player=None,
                 ' in config file or with command line.'
                 ' On example mplayer, mpg123')
         else:
-            lingualeo_play_sound(sound_url, player)
-    if add and (not is_exist or force) and twords:
-        return lingualeo_add(make_request_part, word, twords, debug)
+            lingualeo_play_sound(translate_response.sound_url, player)
+    if (add and
+            (not translate_response.exists or force) and
+            translate_response.words):
+        return lingualeo_add(
+            make_request_part, word, translate_response, debug)
     return translate_response
 
 

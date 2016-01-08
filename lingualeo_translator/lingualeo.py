@@ -11,7 +11,8 @@ import argparse
 import yaml
 import requests
 import string
-from itertools import ifilter
+import six
+from six.moves import filter
 from collections import namedtuple
 from functools import partial
 from colorama import init as colorama_init, Fore
@@ -21,7 +22,8 @@ logging.basicConfig()
 logger = logging.getLogger('lingualeo')
 logger.setLevel(logging.DEBUG)
 
-Translate = namedtuple('Translate', 'exists, words, sound_url, transcription')
+Translate = namedtuple(
+    'Translate', 'exists, words, sound_url, transcription, custom')
 BIG_RUSSIAN_ALPHABET = u'АБВГДЕЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯ'
 ALPHABET = set(
     BIG_RUSSIAN_ALPHABET +
@@ -179,7 +181,17 @@ def lingualeo_auth(func, email, password, debug=False):
 
 
 def fix_translate_string(word):
-    return re.sub(r'\s+\.\s*', u'. ', re.sub(r'\s+', u' ', word))
+    return re.sub(r'\s+\.\s*', u'. ', re.sub(r'\s+', u' ', word)).lower()
+
+
+def print_translated_words(word, words, transcription=None):
+    _print_color_line(
+        u'{0}{1}:'.format(
+            word,
+            u'' if not transcription else u' ({0})'.format(transcription)),
+        Fore.GREEN
+    )
+    print(u'\n'.join(words))
 
 
 def lingualeo_translate(func, word, debug=False):
@@ -200,7 +212,7 @@ def lingualeo_translate(func, word, debug=False):
     is_exist = translate_json_response['is_user']
     sound_url = translate_json_response.get('sound_url')
     transcription = translate_json_response.get('transcription')
-    sorted_pairs = sorted(ifilter(
+    sorted_pairs = sorted(filter(
         lambda x: len(x[1]) > 1, (
             (translate.get('votes', 0),
                 fix_translate_string(
@@ -214,14 +226,8 @@ def lingualeo_translate(func, word, debug=False):
             twords.append(tword)
     _print_color_line(u'Found {0} word'.format(
         'existing' if is_exist else 'new'), Fore.RED)
-    _print_color_line(
-        u'{0}{1}:'.format(
-            word,
-            u'' if not transcription else u' ({0})'.format(transcription)),
-        Fore.GREEN
-    )
-    print(u'\n'.join(twords))
-    return Translate(is_exist, twords, sound_url, transcription)
+    print_translated_words(word, twords, transcription)
+    return Translate(is_exist, twords, sound_url, transcription, False)
 
 
 def lingualeo_add(func, word, translate_response, debug=False):
@@ -242,6 +248,9 @@ def lingualeo_add(func, word, translate_response, debug=False):
         'Updated' if translate_response.exists else 'Added',
         'existing' if translate_response.exists else 'new'
     ), Fore.RED)
+    if translate_response.custom:
+        print_translated_words(
+            word, translate_response.words, translate_response.transcription)
     return add_json_response
 
 
@@ -252,7 +261,8 @@ def lingualeo_play_sound(url, player):
 
 
 def process_translating(word, email, password, player=None,
-                        add=False, debug=False, force=False, sound=False):
+                        add=False, debug=False, force=False, sound=False,
+                        translate=None):
     session = requests.Session()
     make_request_part = partial(make_request, session=session)
     colorama_init()
@@ -270,6 +280,12 @@ def process_translating(word, email, password, player=None,
                 ' On example mplayer, mpg123')
         else:
             lingualeo_play_sound(translate_response.sound_url, player)
+    if translate is not None:
+        translate_response_dict = translate_response._asdict()
+        translate_response_dict['custom'] = True
+        translate = ([trans.decode('utf8') for trans in translate] if
+                     six.PY2 else translate)
+        translate_response = Translate(**translate_response_dict)
     if (add and
             (not translate_response.exists or force) and
             translate_response.words):
@@ -348,18 +364,29 @@ def prepare_parser():
         help='Force add words')
 
     parser.add_argument(
-        'word',
-        metavar='WORD',
-        type=str,
-        help='Word to translate')
-
-    parser.add_argument(
         '--player',
         required=False,
         action='store',
         dest='player',
         type=str,
-        help='Player for word pronounciation')
+        help='Meia player for word pronounciation')
+
+    parser.add_argument(
+        '-t',
+        '--translate',
+        required=False,
+        nargs='+',
+        action='store',
+        dest='translate',
+        type=str,
+        help='Set custom translate')
+
+    parser.add_argument(
+        'word',
+        metavar='WORD',
+        type=str,
+        nargs='+',
+        help='Word to translate')
 
     return parser
 

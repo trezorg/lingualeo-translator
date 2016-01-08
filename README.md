@@ -1,4 +1,4 @@
-lingualeo-translator
+lingualeo_translator
 ====================================
 
 Translates and adds words with Lingualeo service.
@@ -15,8 +15,8 @@ Dependencies
 Install
 ------------------------------------
 
-    git clone https://github.com/trezorg/lingualeo-translator.git
-    cd lingualeo-translator
+    git clone https://github.com/trezorg/lingualeo_translator.git
+    cd lingualeo_translator
     python setup.py install
 
     or

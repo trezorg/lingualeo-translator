@@ -255,9 +255,11 @@ def lingualeo_add(func, word, translate_response, debug=False):
 
 
 def lingualeo_play_sound(url, player):
+    params = player.split()
+    params.append(url)
     with open(os.devnull, 'w') as fp:
         subprocess.Popen(
-            [player, url], stdout=fp, stderr=subprocess.STDOUT).wait()
+            params, stdout=fp, stderr=subprocess.STDOUT).wait()
 
 
 def process_translating(word, email, password, player=None,

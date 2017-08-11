@@ -1,5 +1,6 @@
-#!/usr/bin/python
+#!/usr/bin/env python
 # -*- coding: utf8 -*-
+"""Lingualeo API module."""
 from __future__ import print_function
 import os
 import sys
@@ -11,7 +12,6 @@ import argparse
 import yaml
 import requests
 import string
-import six
 from six.moves import filter
 from collections import namedtuple
 from functools import partial
@@ -55,13 +55,13 @@ def _print_color_line(text, color, new_line=True):
     print(message, **({} if new_line else {'end': ' '}))
 
 
-def filter_config_files(*args):
+def _filter_config_files(*args):
     for filename in args:
         if filename and os.path.isfile(filename):
             yield filename
 
 
-def read_config(filename):
+def _read_config(filename):
     try:
         fln = codecs.open(filename, encoding='utf-8')
         return yaml.load(fln.read())
@@ -70,7 +70,7 @@ def read_config(filename):
         return {}
 
 
-def meld_configs(result, *options):
+def _meld_configs(result, *options):
     result = result or {}
     for option in options:
         option = {k: v for k, v in option.items() if v}
@@ -78,7 +78,7 @@ def meld_configs(result, *options):
             if isinstance(value, (list, tuple)):
                 values = result.get(key, [])
                 values.extend(value)
-                result[key] = list(set((values)))
+                result[key] = list(set(values))
             elif isinstance(value, dict):
                 values = result.get(key, {})
                 values.update(value)
@@ -88,20 +88,20 @@ def meld_configs(result, *options):
     return result
 
 
-def read_configs(*args):
+def _read_configs(*args):
     result = {}
     for filename in args:
-        config = read_config(filename)
-        result = meld_configs(result, config)
+        config = _read_config(filename)
+        result = _meld_configs(result, config)
     return result
 
 
-def check_absent_options(options, names):
+def _check_absent_options(options, names):
     return [name for name in names if name not in options]
 
 
-def check_options(options):
-    absent_options = check_absent_options(options, [
+def _check_options(options):
+    absent_options = _check_absent_options(options, [
         'email',
         'password',
         'add',
@@ -120,6 +120,7 @@ def check_options(options):
 
 
 def check_config(filename):
+    """Check config existence."""
     if not os.path.isfile(filename):
         raise argparse.ArgumentTypeError(
             'Filename is not exists: {0}'.format(filename))
@@ -127,13 +128,14 @@ def check_config(filename):
 
 
 def prepare_options():
+    """Parse arguments."""
     parser = prepare_parser()
     args_options = {
         k: v for k, v in vars(parser.parse_args()).items() if v is not None
     }
     allowed_configs = DEFAULT_CONFIGS + [args_options.get("config")]
-    config_files = list(filter_config_files(*allowed_configs))
-    options = read_configs(*config_files)
+    config_files = list(_filter_config_files(*allowed_configs))
+    options = _read_configs(*config_files)
     should_add = options.get('add')
     should_debug = options.get('debug')
     should_force = options.get('force')
@@ -143,13 +145,14 @@ def prepare_options():
     options['debug'] = options['debug'] or should_debug
     options['force'] = options['force'] or should_force
     options['sound'] = options['sound'] or should_sound
-    if not check_options(options):
+    if not _check_options(options):
         parser.print_help()
         return
     return options
 
 
 def make_request(url, session=None, method='GET', params=None, data=None):
+    """Http request processing."""
     if session is None:
         session = requests.Session()
     handler = getattr(session, method.lower())
@@ -157,11 +160,13 @@ def make_request(url, session=None, method='GET', params=None, data=None):
 
 
 def debug_request(response):
+    """Debug logging."""
     logger.debug('Status code: {0}\nResponse: {1}'.format(
         response.status_code, response.content))
 
 
 def lingualeo_auth(func, email, password, debug=False):
+    """Lingualeo auth processing."""
     auth_response = func(AUTH_URL, method='POST', data={
         'email': email,
         'password': password
@@ -181,10 +186,12 @@ def lingualeo_auth(func, email, password, debug=False):
 
 
 def fix_translate_string(word):
+    """Translated word processing."""
     return re.sub(r'\s+\.\s*', u'. ', re.sub(r'\s+', u' ', word)).lower()
 
 
 def print_translated_words(word, words, transcription=None):
+    """Color printing."""
     _print_color_line(
         u'{0}{1}:'.format(
             word,
@@ -195,6 +202,7 @@ def print_translated_words(word, words, transcription=None):
 
 
 def lingualeo_translate(func, word, debug=False):
+    """Translating word."""
     translate_response = func(TRANSLATE_URL, params={'word': word})
     if debug:
         debug_request(translate_response)
@@ -212,14 +220,15 @@ def lingualeo_translate(func, word, debug=False):
     is_exist = translate_json_response['is_user']
     sound_url = translate_json_response.get('sound_url')
     transcription = translate_json_response.get('transcription')
-    sorted_pairs = sorted(filter(
-        lambda x: len(x[1]) > 1, (
-            (translate.get('votes', 0),
-                fix_translate_string(
-                    u''.join(s for s in word if s in ALPHABET).strip()))
-            for translate in translates
-            for word in re.split(r'\s*?[:,;]+\s*?', translate['value'].strip())
-        )), reverse=True)
+    vote_word_pairs = (
+        (translate.get('votes', 0),
+         fix_translate_string(
+             u''.join(s for s in word if s in ALPHABET).strip()))
+        for translate in translates
+        for word in re.split(r'\s*?[:,;]+\s*?', translate['value'].strip())
+    )
+    sorted_pairs = sorted(
+        filter(lambda x: len(x[1]) > 1, vote_word_pairs), reverse=True)
     twords = []
     for _, tword in sorted_pairs:
         if tword not in twords:
@@ -231,6 +240,7 @@ def lingualeo_translate(func, word, debug=False):
 
 
 def lingualeo_add(func, word, translate_response, debug=False):
+    """Add wordto Lingualeo dictionary."""
     add_response = func(ADD_WORD_URL, method='POST', data={
         'word': word,
         'tword': u', '.join(translate_response.words)
@@ -255,6 +265,7 @@ def lingualeo_add(func, word, translate_response, debug=False):
 
 
 def lingualeo_play_sound(url, player):
+    """Pronunciation of translated word."""
     params = player.split()
     params.append(url)
     with open(os.devnull, 'w') as fp:
@@ -265,6 +276,7 @@ def lingualeo_play_sound(url, player):
 def process_translating(word, email, password, player=None,
                         add=False, debug=False, force=False, sound=False,
                         translate=None):
+    """Main translating function."""
     session = requests.Session()
     make_request_part = partial(make_request, session=session)
     colorama_init()
@@ -285,8 +297,6 @@ def process_translating(word, email, password, player=None,
     if translate is not None:
         translate_response_dict = translate_response._asdict()
         translate_response_dict['custom'] = True
-        translate = ([trans.decode('utf8') for trans in translate] if
-                     six.PY2 else translate)
         translate_response = Translate(**translate_response_dict)
     if (add and
             (not translate_response.exists or force) and
@@ -297,9 +307,7 @@ def process_translating(word, email, password, player=None,
 
 
 def prepare_parser():
-    """
-    Handle the command line arguments
-    """
+    """Handle the command line arguments."""
     parser = argparse.ArgumentParser(
         prog="lingualeo",
         description="\n".join(
@@ -394,6 +402,7 @@ def prepare_parser():
 
 
 def main():
+    """Enter point."""
     options = prepare_options()
     if options is None:
         sys.exit(1)

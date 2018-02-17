@@ -27,4 +27,4 @@ Install
 Using
 ------------------------------------
 
-    lingualeo.py --help
+    lingualeo --help

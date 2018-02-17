@@ -11,9 +11,11 @@ import subprocess
 import argparse
 import yaml
 import requests
-import string
 from six.moves import filter
-from collections import namedtuple
+from collections import (
+    namedtuple,
+    OrderedDict,
+)
 from functools import partial
 from colorama import init as colorama_init, Fore
 
@@ -24,11 +26,10 @@ logger.setLevel(logging.DEBUG)
 
 Translate = namedtuple(
     'Translate', 'exists, words, sound_url, transcription, custom')
-BIG_RUSSIAN_ALPHABET = u'АБВГДЕЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯ'
+BIG_RUSSIAN_ALPHABET = u'АБВГДЕЁЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯ'
 ALPHABET = set(
     BIG_RUSSIAN_ALPHABET +
     BIG_RUSSIAN_ALPHABET.lower() +
-    string.ascii_letters +
     u'-. '
 )
 AUTH_URL = 'http://api.lingualeo.com/api/login'
@@ -221,22 +222,24 @@ def lingualeo_translate(func, word, debug=False):
     sound_url = translate_json_response.get('sound_url')
     transcription = translate_json_response.get('transcription')
     vote_word_pairs = (
-        (translate.get('votes', 0),
-         fix_translate_string(
-             u''.join(s for s in word if s in ALPHABET).strip()))
+        (
+            translate.get('votes', 0),
+            fix_translate_string(
+                u''.join(s for s in word if s in ALPHABET).strip())
+        )
         for translate in translates
         for word in re.split(r'\s*?[:,;]+\s*?', translate['value'].strip())
     )
-    sorted_pairs = sorted(
-        filter(lambda x: len(x[1]) > 1, vote_word_pairs), reverse=True)
-    twords = []
-    for _, tword in sorted_pairs:
-        if tword not in twords:
-            twords.append(tword)
+    sorted_words = (
+        word for _, word in
+        sorted(filter(lambda x: len(x[1]) > 1, vote_word_pairs), reverse=True)
+    )
+    # remove duplicates
+    words = list(OrderedDict.fromkeys(sorted_words))
     _print_color_line(u'Found {0} word'.format(
         'existing' if is_exist else 'new'), Fore.RED)
-    print_translated_words(word, twords, transcription)
-    return Translate(is_exist, twords, sound_url, transcription, False)
+    print_translated_words(word, words, transcription)
+    return Translate(is_exist, words, sound_url, transcription, False)
 
 
 def lingualeo_add(func, word, translate_response, debug=False):
@@ -379,7 +382,7 @@ def prepare_parser():
         action='store',
         dest='player',
         type=str,
-        help='Meia player for word pronounciation')
+        help='Media player for word pronounciation')
 
     parser.add_argument(
         '-t',

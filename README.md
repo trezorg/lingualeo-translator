@@ -15,11 +15,11 @@ Dependencies
 Install
 ------------------------------------
 
-    git clone https://github.com/trezorg/lingualeo_translator.git
-    cd lingualeo_translator
+    git clone https://github.com/trezorg/lingualeo-translator.git
+    cd lingualeo-translator
     python setup.py install
 
-    or
+**or**
 
     pip install . --user
 

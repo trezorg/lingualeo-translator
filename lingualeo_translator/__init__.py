@@ -1,1 +1,2 @@
-VERSION = (0, 0, 2)
+"""Package module."""
+VERSION = (0, 0, 3)

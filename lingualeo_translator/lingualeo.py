@@ -33,11 +33,13 @@ logger.setLevel(logging.DEBUG)
 
 Translate = namedtuple(
     'Translate', 'exists, words, sound_url, transcription, custom')
+SPLIT_REGEX = re.compile(r'\s*?[:,;]+\s*?')
 BIG_RUSSIAN_ALPHABET = u'АБВГДЕЁЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯ'
+SYMBOLS = u'-. '
 ALPHABET = set(
     BIG_RUSSIAN_ALPHABET +
     BIG_RUSSIAN_ALPHABET.lower() +
-    u'-. '
+    SYMBOLS
 )
 AUTH_URL = 'http://api.lingualeo.com/api/login'
 TRANSLATE_URL = 'http://api.lingualeo.com/gettranslates'
@@ -177,7 +179,13 @@ def lingualeo_auth(func, email, password, debug=False):
 
 def fix_translate_string(word):
     """Translated word processing."""
-    return re.sub(r'\s+\.\s*', u'. ', re.sub(r'\s+', u' ', word)).lower()
+    word = re.sub(
+        r'\s+\.\s*', u'. ',
+        re.sub(r'\s+', u' ', word)
+    ).lower()
+    if word and all(s in SYMBOLS for s in word):
+        return
+    return word
 
 
 def print_translated_words(word, words, transcription=None):
@@ -211,13 +219,15 @@ def lingualeo_translate(func, word, debug=False):
     sound_url = translate_json_response.get('sound_url')
     transcription = translate_json_response.get('transcription')
     vote_word_pairs = (
-        (
-            translate.get('votes', 0),
-            fix_translate_string(
-                u''.join(s for s in word if s in ALPHABET).strip())
-        )
-        for translate in translates
-        for word in re.split(r'\s*?[:,;]+\s*?', translate['value'].strip())
+        pair for pair in (
+            (
+                translate.get('votes', 0),
+                fix_translate_string(
+                    u''.join(s for s in word if s in ALPHABET).strip())
+            )
+            for translate in translates
+            for word in re.split(SPLIT_REGEX, translate['value'].strip())
+        ) if pair[-1]
     )
     sorted_words = (
         word for _, word in
